@@ -33,23 +33,30 @@ void gelu(uint16_t *x_bf16, uint16_t *y_bf16, const int len)
         // Check special values
         ValueType x_type = classify_25bit(x_25bit[i]);
 
-        // GELU(NaN) = NaN
-        if (x_type == ValueType::NaN) {
-            y_bf16[i] = 0x7FC0;
-            continue;
-        }
+        switch (x_type) {
+            // GELU(NaN) = NaN
+            case ValueType::NaN:
+                y_bf16[i] = 0x7FC0;
+                continue;
 
-        // GELU(+∞) = +∞ * σ(+∞) = +∞ * 1 = +∞
-        if (x_type == ValueType::PosInf) {
-            y_bf16[i] = 0x7F80;
-            continue;
-        }
+            // GELU(+∞) = +∞ * σ(+∞) = +∞ * 1 = +∞
+            case ValueType::PosInf:
+                y_bf16[i] = 0x7F80;
+                continue;
 
-        // GELU(-∞) = -∞ * σ(-∞) = -∞ * 0 = NaN (undefined)
-        // But according to GELU definition, GELU(-∞) = 0
-        if (x_type == ValueType::NegInf) {
-            y_bf16[i] = 0x0000;
-            continue;
+            // GELU(-∞) = -∞ * σ(-∞) = -∞ * 0 = NaN (undefined)
+            // But according to GELU definition, GELU(-∞) = 0
+            case ValueType::NegInf:
+                y_bf16[i] = 0x0000;
+                continue;
+
+            // Normal case: Zero and Normal values continue to computation
+            case ValueType::Zero:
+            case ValueType::Normal:
+                break;
+
+            default:
+                break;
         }
 
         // ============================================================

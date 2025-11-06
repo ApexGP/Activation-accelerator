@@ -17,23 +17,31 @@ void sigmoid(uint32_t x_25bit, uint32_t &y_25bit)
     // Check special values
     ValueType x_type = classify_25bit(x_25bit);
 
-    // σ(NaN) = NaN
-    if (x_type == ValueType::NaN) {
-        uint16_t nan_bf16 = 0x7FC0;
-        y_25bit = float_to_extended_25bit(bf16_to_float(nan_bf16));
-        return;
-    }
+    switch (x_type) {
+        // σ(NaN) = NaN
+        case ValueType::NaN: {
+            uint16_t nan_bf16 = 0x7FC0;
+            y_25bit = float_to_extended_25bit(bf16_to_float(nan_bf16));
+            return;
+        }
 
-    // σ(+∞) = 1 / (1 + exp(-∞)) = 1 / (1 + 0) = 1
-    if (x_type == ValueType::PosInf) {
-        y_25bit = float_to_extended_25bit(1.0f);
-        return;
-    }
+        // σ(+∞) = 1 / (1 + exp(-∞)) = 1 / (1 + 0) = 1
+        case ValueType::PosInf:
+            y_25bit = float_to_extended_25bit(1.0f);
+            return;
 
-    // σ(-∞) = 1 / (1 + exp(+∞)) = 1 / (+∞) = 0
-    if (x_type == ValueType::NegInf) {
-        y_25bit = float_to_extended_25bit(0.0f);
-        return;
+        // σ(-∞) = 1 / (1 + exp(+∞)) = 1 / (+∞) = 0
+        case ValueType::NegInf:
+            y_25bit = float_to_extended_25bit(0.0f);
+            return;
+
+        // Normal case: Zero and Normal values continue to computation
+        case ValueType::Zero:
+        case ValueType::Normal:
+            break;
+
+        default:
+            break;
     }
 
     // Numerical stability check (avoid exp overflow/underflow)

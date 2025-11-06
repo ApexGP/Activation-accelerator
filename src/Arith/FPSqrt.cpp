@@ -61,42 +61,54 @@ void FPSqrt::set_input(uint32_t X)
     // - 1/sqrt(+0) = +inf
     // - 1/sqrt(-0) = -inf
 
-    if (exn == 3) {
-        // NaN
-        result = X_reg;  // Propagate NaN
-        valid_out = true;
-        state = DONE;
-        return;
-    } else if (exn == 2) {
-        // Infinity
-        if (sign) {
-            // 1/sqrt(-inf) = NaN
-            result = (3U << 23) | (0xFF << 14) | 0x1;  // NaN
-        } else {
-            // 1/sqrt(+inf) = +0
-            result = (0U << 23) | (0U << 22);  // +0
-        }
-        valid_out = true;
-        state = DONE;
-        return;
-    } else if (exn == 0) {
-        // Zero: 1/sqrt(±0) = ±inf (preserve sign)
-        if (sign) {
-            // 1/sqrt(-0) = -inf
-            result = (2U << 23) | (1U << 22) | (0xFF << 14);  // -inf
-        } else {
-            // 1/sqrt(+0) = +inf
-            result = (2U << 23) | (0U << 22) | (0xFF << 14);  // +inf
-        }
-        valid_out = true;
-        state = DONE;
-        return;
-    } else if (sign) {
-        // Normal negative number: 1/sqrt(-x) = NaN
-        result = (3U << 23) | (0xFF << 14) | 0x1;  // NaN
-        valid_out = true;
-        state = DONE;
-        return;
+    switch (exn) {
+        case 3:
+            // NaN
+            result = X_reg;  // Propagate NaN
+            valid_out = true;
+            state = DONE;
+            return;
+
+        case 2:
+            // Infinity
+            if (sign) {
+                // 1/sqrt(-inf) = NaN
+                result = (3U << 23) | (0xFF << 14) | 0x1;  // NaN
+            } else {
+                // 1/sqrt(+inf) = +0
+                result = (0U << 23) | (0U << 22);  // +0
+            }
+            valid_out = true;
+            state = DONE;
+            return;
+
+        case 0:
+            // Zero: 1/sqrt(±0) = ±inf (preserve sign)
+            if (sign) {
+                // 1/sqrt(-0) = -inf
+                result = (2U << 23) | (1U << 22) | (0xFF << 14);  // -inf
+            } else {
+                // 1/sqrt(+0) = +inf
+                result = (2U << 23) | (0U << 22) | (0xFF << 14);  // +inf
+            }
+            valid_out = true;
+            state = DONE;
+            return;
+
+        case 1:
+            // Normal
+            if (sign) {
+                // Normal negative number: 1/sqrt(-x) = NaN
+                result = (3U << 23) | (0xFF << 14) | 0x1;  // NaN
+                valid_out = true;
+                state = DONE;
+                return;
+            }
+
+            break;
+
+        default:
+            break;
     }
 
     // Normal positive number: proceed with computation

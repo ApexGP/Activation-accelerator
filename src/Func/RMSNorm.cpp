@@ -2,11 +2,10 @@
 #include "Arith/FPMult.h"
 #include "Arith/FPSqrt.h"
 #include "Func/RMSNorm.h"
+#include "Utils/Config.h"
 #include "Utils/ConstDiv.h"
 #include "Utils/FormatUtils.h"
 #include "Utils/HlsVector.h"
-
-const int MAX_CAPACITY = 768;
 
 void rms_norm(uint16_t *x_bf16, uint16_t *y_bf16, const int len, float eps)
 {

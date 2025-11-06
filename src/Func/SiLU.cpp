@@ -23,23 +23,29 @@ void silu(uint16_t *x_bf16, uint16_t *y_bf16, const int len)
         // Check special values
         ValueType x_type = classify_25bit(x_25bit[i]);
 
-        // SiLU(NaN) = NaN
-        if (x_type == ValueType::NaN) {
-            y_bf16[i] = 0x7FC0;
-            continue;
-        }
+        switch (x_type) {
+            // SiLU(NaN) = NaN
+            case ValueType::NaN:
+                y_bf16[i] = 0x7FC0;
+                continue;
 
-        // SiLU(+∞) = +∞ * σ(+∞) = +∞ * 1 = +∞
-        if (x_type == ValueType::PosInf) {
-            uint32_t pos_inf_25bit = (2U << 23) | (0xFF << 14);
-            y_bf16[i] = extended_25bit_to_bf16(pos_inf_25bit);
-            continue;
-        }
+            // SiLU(+∞) = +∞ * σ(+∞) = +∞ * 1 = +∞
+            case ValueType::PosInf:
+                y_bf16[i] = 0x7F80;
+                continue;
 
-        // SiLU(-∞) = -∞ * σ(-∞) = -∞ * 0 → 0 (by L'Hôpital's rule)
-        if (x_type == ValueType::NegInf) {
-            y_bf16[i] = 0x0000;
-            continue;
+            // SiLU(-∞) = -∞ * σ(-∞) = -∞ * 0 → 0 (by L'Hôpital's rule)
+            case ValueType::NegInf:
+                y_bf16[i] = 0x0000;
+                continue;
+
+            // Normal case: Zero and Normal values continue to computation
+            case ValueType::Zero:
+            case ValueType::Normal:
+                break;
+
+            default:
+                break;
         }
 
         // Numerical stability check (avoid exp overflow/underflow)

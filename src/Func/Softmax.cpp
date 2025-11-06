@@ -1,11 +1,11 @@
-#include <vector>
-
 #include "Arith/Exp.h"
 #include "Arith/FPAdd.h"
 #include "Arith/FPMult.h"
 #include "Arith/FPSub.h"
 #include "Func/Softmax.h"
+#include "Utils/Config.h"
 #include "Utils/FormatUtils.h"
+#include "Utils/HlsVector.h"
 
 // Online Softmax implementation (full 25-bit precision throughout, reduce format conversion)
 void online_softmax(uint16_t *x_bf16, uint16_t *y_bf16, const int len)
@@ -27,8 +27,8 @@ void online_softmax(uint16_t *x_bf16, uint16_t *y_bf16, const int len)
     uint32_t s_old = 0U;                       // exn=0 (zero)
 
     // Record indices where inf appears during computation
-    std::vector<int> computed_inf_indices;
-    std::vector<int> input_pos_inf_indices;
+    HlsVector<int, MAX_CAPACITY> computed_inf_indices;
+    HlsVector<int, MAX_CAPACITY> input_pos_inf_indices;
     bool has_nan = false;
     bool all_neg_inf = true;
 
@@ -36,6 +36,7 @@ void online_softmax(uint16_t *x_bf16, uint16_t *y_bf16, const int len)
     // First pass: dynamically maintain max and sum (full 25-bit precision)
     // ============================================================
     for (int i = 0; i < len; i++) {
+#pragma HLS PIPELINE II = 1
         uint32_t x_curr = x_25bit[i];
         ValueType x_type = classify_25bit(x_curr);
 
@@ -168,6 +169,7 @@ void online_softmax(uint16_t *x_bf16, uint16_t *y_bf16, const int len)
     if (has_nan) {
         uint16_t nan_bf16 = 0x7FC0;
         for (int i = 0; i < len; i++) {
+#pragma HLS PIPELINE II = 1
             y_bf16[i] = nan_bf16;
         }
         return;
@@ -180,9 +182,11 @@ void online_softmax(uint16_t *x_bf16, uint16_t *y_bf16, const int len)
         uint16_t zero_bf16 = 0x0000;
 
         for (int i = 0; i < len; i++) {
+#pragma HLS PIPELINE II = 1
             y_bf16[i] = zero_bf16;
         }
         for (int idx : input_pos_inf_indices) {
+#pragma HLS PIPELINE II = 1
             y_bf16[idx] = prob_bf16;
         }
         return;
@@ -192,6 +196,7 @@ void online_softmax(uint16_t *x_bf16, uint16_t *y_bf16, const int len)
     if (all_neg_inf) {
         uint16_t nan_bf16 = 0x7FC0;
         for (int i = 0; i < len; i++) {
+#pragma HLS PIPELINE II = 1
             y_bf16[i] = nan_bf16;
         }
         return;
@@ -204,9 +209,11 @@ void online_softmax(uint16_t *x_bf16, uint16_t *y_bf16, const int len)
         uint16_t zero_bf16 = 0x0000;
 
         for (int i = 0; i < len; i++) {
+#pragma HLS PIPELINE II = 1
             y_bf16[i] = zero_bf16;
         }
         for (int idx : computed_inf_indices) {
+#pragma HLS PIPELINE II = 1
             y_bf16[idx] = prob_bf16;
         }
         return;

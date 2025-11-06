@@ -14,6 +14,9 @@
 #define ROW 64
 #define DIMENSION 768
 
+// Max Capacity for HlsVector
+#define MAX_CAPACITY 770
+
 // Stage Definition
 #define STAGE_LOAD 0     // Data loading stage
 #define STAGE_COMPUTE 1  // Computation stage
