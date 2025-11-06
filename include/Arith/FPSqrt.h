@@ -68,22 +68,26 @@ public:
     // Output: 25-bit format (exn(2) + sign(1) + exp(8) + mantissa(14))
     uint32_t get_result_extended() const
     {
+#pragma HLS INLINE
         return result;
     }
 
     // Debug getters
     uint32_t get_ln_X() const
     {
+#pragma HLS INLINE
         return ln_X;
     }
     uint32_t get_half_ln_X() const
     {
+#pragma HLS INLINE
         return half_ln_X;
     }
 
     enum State { IDLE, ANALYSIS, MULT_HALF, EXP_COMPUTE, NEWTON_ITER1, NEWTON_ITER2, DONE };
     State get_state() const
     {
+#pragma HLS INLINE
         return state;
     }
 

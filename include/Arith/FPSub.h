@@ -89,6 +89,7 @@ public:
      */
     uint32_t get_result_extended() const
     {
+#pragma HLS INLINE
         return R & 0x1FFFFFF;
     }
 };

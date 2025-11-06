@@ -22,6 +22,7 @@ public:
     // Get result (25-bit extended bf16 format)
     uint32_t get_result() const
     {
+#pragma HLS INLINE
         return R;
     }
 

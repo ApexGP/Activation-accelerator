@@ -238,132 +238,153 @@ void Exp::stage0_input()
 
 void Exp::stage1_K_calculation()
 {
-    if (valid_pipe[0]) {
-        // Propagate special case flag
-        is_special_case_pipe[1] = is_special_case_pipe[0];
-        special_result_pipe[1] = special_result_pipe[0];
+    int is_valid_pipe_0 = valid_pipe[0] ? 1 : 0;
+    switch (is_valid_pipe_0) {
+        case 1: {
+            // Propagate special case flag
+            is_special_case_pipe[1] = is_special_case_pipe[0];
+            special_result_pipe[1] = special_result_pipe[0];
 
-        // Pipeline K_value (stage 0 → pipeline stage 0)
-        K_value_pipe[0] = K_value;
+            // Pipeline K_value (stage 0 → pipeline stage 0)
+            K_value_pipe[0] = K_value;
 
-        // Calculate Exp_Y = uxFix[17:0] - K*ln2 (18-bit)
-        uint32_t uxFix_low = uxFix & 0x3FFFF;  // 18-bit (upgraded from 14-bit)
-        uint32_t ln2_t0 = Exp_ln2_LUT_t0[(absInt_K >> 3) & 0x1F] & 0x3FFFF;  // 18-bit
-        uint32_t ln2_t1 = Exp_ln2_LUT_t1[absInt_K & 0x7] & 0x3FFFF;          // 18-bit
-        uint32_t k_ln2 = (ln2_t0 + ln2_t1) & 0x3FFFF;                        // 18-bit
+            // Calculate Exp_Y = uxFix[17:0] - K*ln2 (18-bit)
+            uint32_t uxFix_low = uxFix & 0x3FFFF;  // 18-bit (upgraded from 14-bit)
+            uint32_t ln2_t0 = Exp_ln2_LUT_t0[(absInt_K >> 3) & 0x1F] & 0x3FFFF;  // 18-bit
+            uint32_t ln2_t1 = Exp_ln2_LUT_t1[absInt_K & 0x7] & 0x3FFFF;          // 18-bit
+            uint32_t k_ln2 = (ln2_t0 + ln2_t1) & 0x3FFFF;                        // 18-bit
 
-        if ((X_reg & 0x400000) == 0) {  // Sign bit at bit 22 (changed from bit 21)
-            // Positive: X - K*ln2 = X + ~(K*ln2) + 1
-            Exp_Y = (uxFix_low + (~k_ln2) + 1) & 0x3FFFF;  // 18-bit
-        } else {
-            // Negative: ~X + K*ln2 + 1
-            Exp_Y = ((~uxFix_low) + k_ln2 + 1) & 0x3FFFF;  // 18-bit
+            if ((X_reg & 0x400000) == 0) {  // Sign bit at bit 22 (changed from bit 21)
+                // Positive: X - K*ln2 = X + ~(K*ln2) + 1
+                Exp_Y = (uxFix_low + (~k_ln2) + 1) & 0x3FFFF;  // 18-bit
+            } else {
+                // Negative: ~X + K*ln2 + 1
+                Exp_Y = ((~uxFix_low) + k_ln2 + 1) & 0x3FFFF;  // 18-bit
+            }
+
+            valid_pipe[1] = true;
+            break;
         }
 
-        valid_pipe[1] = true;
-    } else {
-        valid_pipe[1] = false;
-        is_special_case_pipe[1] = false;
+        case 0: {
+            valid_pipe[1] = false;
+            is_special_case_pipe[1] = false;
+            break;
+        }
+
+        default:
+            break;
     }
 }
 
 void Exp::stage2_Y_calculation()
 {
-    if (valid_pipe[1]) {
-        // Propagate special case flag
-        is_special_case_pipe[2] = is_special_case_pipe[1];
-        special_result_pipe[2] = special_result_pipe[1];
+    int is_valid_pipe_1 = valid_pipe[1] ? 1 : 0;
 
-        // Pipeline K_value (pipeline stage 0 → 1)
-        K_value_pipe[1] = K_value_pipe[0];
+    switch (is_valid_pipe_1) {
+        case 1: {
+            // Propagate special case flag
+            is_special_case_pipe[2] = is_special_case_pipe[1];
+            special_result_pipe[2] = special_result_pipe[1];
 
-        // Special handling: if Exp_Y = 0 (input very close to 0), mark as special case
-        // exp(0) = 1.0
-        if (Exp_Y == 0 && !is_special_case_pipe[1]) {
-            is_special_case_pipe[2] = true;
-            special_result_pipe[2] = 0x2000000;  // 1.0 in 1Q25
+            // Pipeline K_value (pipeline stage 0 → 1)
+            K_value_pipe[1] = K_value_pipe[0];
+
+            // Special handling: if Exp_Y = 0 (input very close to 0), mark as special case
+            // exp(0) = 1.0
+            if (Exp_Y == 0 && !is_special_case_pipe[1]) {
+                is_special_case_pipe[2] = true;
+                special_result_pipe[2] = 0x2000000;  // 1.0 in 1Q25
+            }
+
+            // Set tree_data[0] according to Exp_Y bits (18-bit, from bit 17 to bit 0)
+            for (int i = 0; i < EXP_Y_WIDTH; i++) {
+#pragma HLS PIPELINE II = 1
+                if ((Exp_Y >> i) & 1) {
+                    // Select corresponding exponent value based on bit index
+                    uint32_t exp_val = 0;
+                    switch (i) {
+                        case 17:
+                            exp_val = 0x4DA2CC;
+                            break;
+                        case 16:
+                            exp_val = 0xA45AF2;
+                            break;
+                        case 15:
+                            exp_val = 0x910B02;
+                            break;
+                        case 14:
+                            exp_val = 0x88415B;
+                            break;
+                        case 13:
+                            exp_val = 0x84102B;
+                            break;
+                        case 12:
+                            exp_val = 0x820405;
+                            break;
+                        case 11:
+                            exp_val = 0x810101;
+                            break;
+                        case 10:
+                            exp_val = 0x808040;
+                            break;
+                        case 9:
+                            exp_val = 0x804010;
+                            break;
+                        case 8:
+                            exp_val = 0x802004;
+                            break;
+                        case 7:
+                            exp_val = 0x801001;
+                            break;
+                        case 6:
+                            exp_val = 0x800800;
+                            break;
+                        case 5:
+                            exp_val = 0x800400;
+                            break;
+                        case 4:
+                            exp_val = 0x800200;
+                            break;
+                        case 3:
+                            exp_val = 0x800100;
+                            break;
+                        case 2:
+                            exp_val = 0x800080;
+                            break;
+                        case 1:
+                            exp_val = 0x800040;
+                            break;
+                        case 0:
+                            exp_val = 0x800020;
+                            break;
+                        default:
+                            exp_val = 0;
+                            break;
+                    }
+                    tree_data[0][i] = (exp_val << Guard_Bits) & 0x3FFFFFF;
+                    tree_valid[0][i] = true;
+                } else {
+                    tree_data[0][i] = 0;
+                    tree_valid[0][i] = false;
+                }
+            }
+            valid_pipe[2] = true;
+            break;
         }
 
-        // Set tree_data[0] according to Exp_Y bits (18-bit, from bit 17 to bit 0)
-        for (int i = 0; i < EXP_Y_WIDTH; i++) {
+        case 0: {
+            for (int i = 0; i < MAX_NODES; i++) {
 #pragma HLS PIPELINE II = 1
-            if ((Exp_Y >> i) & 1) {
-                // Select corresponding exponent value based on bit index
-                uint32_t exp_val = 0;
-                switch (i) {
-                    case 17:
-                        exp_val = 0x4DA2CC;
-                        break;
-                    case 16:
-                        exp_val = 0xA45AF2;
-                        break;
-                    case 15:
-                        exp_val = 0x910B02;
-                        break;
-                    case 14:
-                        exp_val = 0x88415B;
-                        break;
-                    case 13:
-                        exp_val = 0x84102B;
-                        break;
-                    case 12:
-                        exp_val = 0x820405;
-                        break;
-                    case 11:
-                        exp_val = 0x810101;
-                        break;
-                    case 10:
-                        exp_val = 0x808040;
-                        break;
-                    case 9:
-                        exp_val = 0x804010;
-                        break;
-                    case 8:
-                        exp_val = 0x802004;
-                        break;
-                    case 7:
-                        exp_val = 0x801001;
-                        break;
-                    case 6:
-                        exp_val = 0x800800;
-                        break;
-                    case 5:
-                        exp_val = 0x800400;
-                        break;
-                    case 4:
-                        exp_val = 0x800200;
-                        break;
-                    case 3:
-                        exp_val = 0x800100;
-                        break;
-                    case 2:
-                        exp_val = 0x800080;
-                        break;
-                    case 1:
-                        exp_val = 0x800040;
-                        break;
-                    case 0:
-                        exp_val = 0x800020;
-                        break;
-                    default:
-                        exp_val = 0;
-                        break;
-                }
-                tree_data[0][i] = (exp_val << Guard_Bits) & 0x3FFFFFF;
-                tree_valid[0][i] = true;
-            } else {
-                tree_data[0][i] = 0;
                 tree_valid[0][i] = false;
             }
+            valid_pipe[2] = false;
+            is_special_case_pipe[2] = false;
+            break;
         }
-        valid_pipe[2] = true;
-    } else {
-        for (int i = 0; i < MAX_NODES; i++) {
-#pragma HLS PIPELINE II = 1
-            tree_valid[0][i] = false;
-        }
-        valid_pipe[2] = false;
-        is_special_case_pipe[2] = false;
+
+        default:
+            break;
     }
 }
 
