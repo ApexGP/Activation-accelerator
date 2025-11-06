@@ -1,4 +1,19 @@
+#include <iomanip>
+#include <iostream>
+
 #include "Utils/FormatUtils.h"
+
+void print_hex24(const char *label, uint32_t value)
+{
+    std::cout << label << ": 0x" << std::hex << std::setw(6) << std::setfill('0')
+              << (value & 0xFFFFFF) << std::dec << std::endl;
+}
+
+void print_hex16(const char *label, uint16_t value)
+{
+    std::cout << label << ": 0x" << std::hex << std::setw(4) << std::setfill('0') << value
+              << std::dec << std::endl;
+}
 
 float bf16_to_float(uint16_t bf16)
 {
@@ -32,14 +47,15 @@ uint16_t float_to_bf16(float val)
     uint32_t dropped_bits = mantissa_23bit & 0xFFFF;  // Lower 16 bits being dropped
     uint32_t half = 0x8000;                           // 0.5 in fixed-point (bit 15)
 
-    bool round_up_gt_half = dropped_bits > half;
-    bool round_up_eq_half = dropped_bits == half;
-
-    bool round_up_eq_half_and_odd = round_up_eq_half && (mantissa_7bit & 0x1);
-
     // Round-to-nearest-even (banker's rounding)
-    if (round_up_gt_half || round_up_eq_half_and_odd) {
+    if (dropped_bits > half) {
+        // Greater than 0.5: round up
         mantissa_7bit++;
+    } else if (dropped_bits == half) {
+        // Exactly 0.5: round to even (if odd, round up)
+        if (mantissa_7bit & 0x1) {
+            mantissa_7bit++;
+        }
     }
     // Less than 0.5: round down (no change)
 
@@ -69,25 +85,17 @@ uint16_t extended_25bit_to_bf16(uint32_t val25)
     uint32_t mantissa_14bit = val25 & 0x3FFF;
 
     // Handle special cases
-    switch (exn) {
-        case 0:
-            // Zero
-            return (uint16_t) (sign << 15);
-
-        case 2:
-            // Infinity
-            return (uint16_t) ((sign << 15) | (0xFF << 7));
-
-        case 3: {
-            // NaN
-            uint32_t mantissa_7bit =
-                (mantissa_14bit >> 7) | 0x1;  // Preserve NaN with at least 1 bit set
-            return (uint16_t) ((sign << 15) | (0xFF << 7) | mantissa_7bit);
-        }
-
-        case 1:
-        default:
-            break;
+    if (exn == 0) {
+        // Zero
+        return (uint16_t) (sign << 15);
+    } else if (exn == 2) {
+        // Infinity
+        return (uint16_t) ((sign << 15) | (0xFF << 7));
+    } else if (exn == 3) {
+        // NaN
+        uint32_t mantissa_7bit =
+            (mantissa_14bit >> 7) | 0x1;  // Preserve NaN with at least 1 bit set
+        return (uint16_t) ((sign << 15) | (0xFF << 7) | mantissa_7bit);
     }
 
     // Normal number: round mantissa from 14-bit to 7-bit
@@ -95,14 +103,15 @@ uint16_t extended_25bit_to_bf16(uint32_t val25)
     uint32_t dropped_bits = mantissa_14bit & 0x7F;  // Lower 7 bits being dropped
     uint32_t half = 0x40;                           // 0.5 in fixed-point (bit 6)
 
-    bool round_up_gt_half = dropped_bits > half;
-    bool round_up_eq_half = dropped_bits == half;
-
-    bool round_up_eq_half_and_odd = round_up_eq_half && (mantissa_7bit & 0x1);
-
     // Round-to-nearest-even (banker's rounding)
-    if (round_up_gt_half || round_up_eq_half_and_odd) {
+    if (dropped_bits > half) {
+        // Greater than 0.5: round up
         mantissa_7bit++;
+    } else if (dropped_bits == half) {
+        // Exactly 0.5: round to even (if odd, round up)
+        if (mantissa_7bit & 0x1) {
+            mantissa_7bit++;
+        }
     }
     // Less than 0.5: round down (no change)
 
@@ -132,40 +141,21 @@ uint32_t float_to_extended_25bit(float val)
     uint32_t mantissa_23bit = f32_bits & 0x7FFFFF;
 
     // Handle special cases first
-    uint32_t exn;  // exn encoding: 00=zero, 01=normal, 10=inf, 11=NaN
-
-    switch (exp) {
-        case 0:
-            // This is either Zero or a Denormal number
-            if (mantissa_23bit == 0) {
-                // Zero
-                exn = 0;
-                // Return signed zero in 25-bit format
-                return ((exn << 23) | (sign << 22)) & 0x1FFFFFF;
-            }
-            // else: Denormal number. Fall through to the normal path.
-            exn = 1;  // Treat denormals as "normal" for this stage
-            break;    // Exit switch, proceed to normal calculation path
-
-        case 0xFF:
-            // This is either Infinity or NaN
-            uint32_t mantissa_14bit;
-            if (mantissa_23bit == 0) {
-                // Infinity
-                exn = 2;
-                mantissa_14bit = 0;  // Mantissa for Inf is 0
-            } else {
-                // NaN
-                exn = 3;
-                mantissa_14bit = mantissa_23bit >> 9;  // Propagate NaN payload
-            }
-            // Return Inf/NaN in 25-bit format
-            return ((exn << 23) | (sign << 22) | (exp << 14) | mantissa_14bit) & 0x1FFFFFF;
-
-        default:
-            // Normal number
-            exn = 1;
-            break;
+    uint32_t exn = 1;  // Normal number by default
+    if (exp == 0 && mantissa_23bit == 0) {
+        // Zero
+        exn = 0;
+        return ((exn << 23) | (sign << 22)) & 0x1FFFFFF;
+    } else if (exp == 0xFF) {
+        if (mantissa_23bit == 0) {
+            // Infinity
+            exn = 2;
+        } else {
+            // NaN
+            exn = 3;
+        }
+        uint32_t mantissa_14bit = mantissa_23bit >> 9;
+        return ((exn << 23) | (sign << 22) | (exp << 14) | mantissa_14bit) & 0x1FFFFFF;
     }
 
     // Round mantissa from 23-bit to 14-bit using round-to-nearest-even
@@ -173,14 +163,15 @@ uint32_t float_to_extended_25bit(float val)
     uint32_t dropped_bits = mantissa_23bit & 0x1FF;  // Lower 9 bits being dropped
     uint32_t half = 0x100;                           // 0.5 in fixed-point (bit 8)
 
-    bool round_up_gt_half = dropped_bits > half;
-    bool round_up_eq_half = dropped_bits == half;
-
-    bool round_up_eq_half_and_odd = round_up_eq_half && (mantissa_14bit & 0x1);
-
     // Round-to-nearest-even (banker's rounding)
-    if (round_up_gt_half || round_up_eq_half_and_odd) {
+    if (dropped_bits > half) {
+        // Greater than 0.5: round up
         mantissa_14bit++;
+    } else if (dropped_bits == half) {
+        // Exactly 0.5: round to even (if odd, round up)
+        if (mantissa_14bit & 0x1) {
+            mantissa_14bit++;
+        }
     }
     // Less than 0.5: round down (no change)
 
@@ -211,28 +202,18 @@ float extended_25bit_to_float(uint32_t val25)
 
     // Handle special cases based on exn (FPAdd/FPMult convention)
     // exn=0: zero, exn=1: normal, exn=2: infinity, exn=3: NaN
-    switch (exn) {
-        case 0: {
-            // Zero
-            uint32_t f32_bits = (sign << 31);
-            return *(float *) &f32_bits;
-        }
-
-        case 2: {
-            // Infinity
-            uint32_t f32_bits = (sign << 31) | (0xFF << 23);
-            return *(float *) &f32_bits;
-        }
-
-        case 3: {
-            // NaN
-            uint32_t f32_bits = (sign << 31) | (0xFF << 23) | 0x400000;
-            return *(float *) &f32_bits;
-        }
-
-        case 1:
-        default:
-            break;
+    if (exn == 0) {
+        // Zero
+        uint32_t f32_bits = (sign << 31);
+        return *(float *) &f32_bits;
+    } else if (exn == 2) {
+        // Infinity
+        uint32_t f32_bits = (sign << 31) | (0xFF << 23);
+        return *(float *) &f32_bits;
+    } else if (exn == 3) {
+        // NaN
+        uint32_t f32_bits = (sign << 31) | (0xFF << 23) | 0x400000;
+        return *(float *) &f32_bits;
     }
 
     // Normal number (exn=1): extend mantissa from 14-bit to 23-bit
@@ -246,22 +227,9 @@ float extended_25bit_to_float(uint32_t val25)
 ValueType classify_25bit(uint32_t val25)
 {
     uint32_t exn = (val25 >> 23) & 0x3;
-    switch (exn) {
-        case 0:
-            return ValueType::Zero;
-
-        case 1:
-            return ValueType::Normal;
-
-        case 2:
-            // exn == 2: infinity, check sign bit
-            return ((val25 >> 22) & 0x1) ? ValueType::NegInf : ValueType::PosInf;
-
-        case 3:
-            return ValueType::NaN;
-
-        default:
-            // Should not reach here, but handle for safety
-            return ValueType::NaN;
-    }
+    if (exn == 0) return ValueType::Zero;
+    if (exn == 1) return ValueType::Normal;
+    if (exn == 3) return ValueType::NaN;
+    // exn == 2: infinity, check sign bit
+    return ((val25 >> 22) & 0x1) ? ValueType::NegInf : ValueType::PosInf;
 }

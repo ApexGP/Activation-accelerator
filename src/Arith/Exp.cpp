@@ -185,206 +185,185 @@ void Exp::extract_fields()
 
 void Exp::stage0_input()
 {
-    if (!valid_in_reg) {
+    if (valid_in_reg) {
+        extract_fields();
+
+        // Check special cases (sign bit at position 22, 23-bit input)
+        // Save special case results as 26-bit 1Q25 format and set special flag
+        if (wE > 133 && (X_reg & 0x400000)) {  // Sign bit at bit 22 (changed from bit 21)
+            // Negative number, large exponent -> exp(-large) -> approaches 0
+            is_special_case_pipe[0] = true;
+            special_result_pipe[0] = 0x0;  // 0 in 1Q25
+            absInt_K = 0;
+            valid_pipe[0] = true;
+        } else if (wE > 133 && !(X_reg & 0x400000)) {
+            // Positive number, large exponent -> exp(large) -> positive infinity (max value)
+            is_special_case_pipe[0] = true;
+            special_result_pipe[0] = 0x3FFFFFF;  // Max value in 1Q25
+            absInt_K = 0;
+            valid_pipe[0] = true;
+        } else if (wE < 104 && (X_reg & 0x400000)) {
+            // Negative number, small exponent (wE < 104) -> exp(-small) -> approaches 1
+            is_special_case_pipe[0] = true;
+            special_result_pipe[0] = 0x2000000;  // 1.0 in 1Q25 (2^25)
+            absInt_K = 0;
+            valid_pipe[0] = true;
+        } else if (wE < 104 && !(X_reg & 0x400000)) {
+            // Positive number, small exponent (wE < 104) -> exp(small) -> approaches 1
+            is_special_case_pipe[0] = true;
+            special_result_pipe[0] = 0x2000000;  // 1.0 in 1Q25 (2^25)
+            absInt_K = 0;
+            valid_pipe[0] = true;
+        } else {
+            // Normal calculation: multiply by 1/ln2 to get integer part K
+            is_special_case_pipe[0] = false;
+            // LUT indexing using 25-bit uxFix
+            uint32_t t0_val = Exp_inv_ln2_LUT_t0[(uxFix >> 20) & 0x1F];  // uxFix[24:20]
+            uint32_t t1_val = Exp_inv_ln2_LUT_t1[(uxFix >> 15) & 0x1F];  // uxFix[19:15]
+            absInt_K = ((t0_val + t1_val) >> 4) & 0xFF;
+
+            // Calculate signed K_value (used for 2^K multiplication in output stage)
+            bool is_negative = (X_reg & 0x400000) != 0;  // Sign bit at position 22
+            if (is_negative) {
+                K_value = -(int16_t) (absInt_K & 0x7F);  // Negative K for negative input
+            } else {
+                K_value = (int16_t) (absInt_K & 0x7F);  // Positive K for positive input
+            }
+
+            valid_pipe[0] = true;
+        }
+    } else {
         valid_pipe[0] = false;
         is_special_case_pipe[0] = false;
-        return;
-    }
-
-    extract_fields();
-    valid_pipe[0] = true;
-
-    // Caculate sign bit
-    bool is_negative = (X_reg & 0x400000) != 0;  // Sign bit at position 22
-
-    // Check special cases (sign bit at position 22, 23-bit input)
-    // Save special case results as 26-bit 1Q25 format and set special flag
-    if (wE > 133) {
-        is_special_case_pipe[0] = true;
-        absInt_K = 0;
-
-        if (is_negative) {
-            // Negative number, large exponent -> exp(-large) -> approaches 0
-            special_result_pipe[0] = 0x0;  // 0 in 1Q25
-        } else {
-            // Positive number, large exponent -> exp(large) -> positive infinity (max value)
-            special_result_pipe[0] = 0x3FFFFFF;  // Max value in 1Q25 (2^25)
-        }
-
-    } else if (wE < 104) {
-        is_special_case_pipe[0] = true;
-        absInt_K = 0;
-
-        // Negative number, small exponent (wE < 104) -> exp(-small) -> approaches 1
-        // Positive number, small exponent (wE < 104) -> exp(small) -> approaches 1
-        special_result_pipe[0] = 0x2000000;  // 1.0 in 1Q25 (2^25)
-
-    } else {
-        // Normal calculation: multiply by 1/ln2 to get integer part K
-        is_special_case_pipe[0] = false;
-        // LUT indexing using 25-bit uxFix
-        uint32_t t0_val = Exp_inv_ln2_LUT_t0[(uxFix >> 20) & 0x1F];  // uxFix[24:20]
-        uint32_t t1_val = Exp_inv_ln2_LUT_t1[(uxFix >> 15) & 0x1F];  // uxFix[19:15]
-        absInt_K = ((t0_val + t1_val) >> 4) & 0xFF;
-
-        // Calculate signed K_value (used for 2^K multiplication in output stage)
-        if (is_negative) {
-            K_value = -(int16_t) (absInt_K & 0x7F);  // Negative K for negative input
-        } else {
-            K_value = (int16_t) (absInt_K & 0x7F);  // Positive K for positive input
-        }
     }
 }
 
 void Exp::stage1_K_calculation()
 {
-    int is_valid_pipe_0 = valid_pipe[0] ? 1 : 0;
-    switch (is_valid_pipe_0) {
-        case 1: {
-            // Propagate special case flag
-            is_special_case_pipe[1] = is_special_case_pipe[0];
-            special_result_pipe[1] = special_result_pipe[0];
+    if (valid_pipe[0]) {
+        // Propagate special case flag
+        is_special_case_pipe[1] = is_special_case_pipe[0];
+        special_result_pipe[1] = special_result_pipe[0];
 
-            // Pipeline K_value (stage 0 → pipeline stage 0)
-            K_value_pipe[0] = K_value;
+        // Pipeline K_value (stage 0 → pipeline stage 0)
+        K_value_pipe[0] = K_value;
 
-            // Calculate Exp_Y = uxFix[17:0] - K*ln2 (18-bit)
-            uint32_t uxFix_low = uxFix & 0x3FFFF;  // 18-bit (upgraded from 14-bit)
-            uint32_t ln2_t0 = Exp_ln2_LUT_t0[(absInt_K >> 3) & 0x1F] & 0x3FFFF;  // 18-bit
-            uint32_t ln2_t1 = Exp_ln2_LUT_t1[absInt_K & 0x7] & 0x3FFFF;          // 18-bit
-            uint32_t k_ln2 = (ln2_t0 + ln2_t1) & 0x3FFFF;                        // 18-bit
+        // Calculate Exp_Y = uxFix[17:0] - K*ln2 (18-bit)
+        uint32_t uxFix_low = uxFix & 0x3FFFF;  // 18-bit (upgraded from 14-bit)
+        uint32_t ln2_t0 = Exp_ln2_LUT_t0[(absInt_K >> 3) & 0x1F] & 0x3FFFF;  // 18-bit
+        uint32_t ln2_t1 = Exp_ln2_LUT_t1[absInt_K & 0x7] & 0x3FFFF;          // 18-bit
+        uint32_t k_ln2 = (ln2_t0 + ln2_t1) & 0x3FFFF;                        // 18-bit
 
-            if ((X_reg & 0x400000) == 0) {  // Sign bit at bit 22 (changed from bit 21)
-                // Positive: X - K*ln2 = X + ~(K*ln2) + 1
-                Exp_Y = (uxFix_low + (~k_ln2) + 1) & 0x3FFFF;  // 18-bit
-            } else {
-                // Negative: ~X + K*ln2 + 1
-                Exp_Y = ((~uxFix_low) + k_ln2 + 1) & 0x3FFFF;  // 18-bit
-            }
-
-            valid_pipe[1] = true;
-            break;
+        if ((X_reg & 0x400000) == 0) {  // Sign bit at bit 22 (changed from bit 21)
+            // Positive: X - K*ln2 = X + ~(K*ln2) + 1
+            Exp_Y = (uxFix_low + (~k_ln2) + 1) & 0x3FFFF;  // 18-bit
+        } else {
+            // Negative: ~X + K*ln2 + 1
+            Exp_Y = ((~uxFix_low) + k_ln2 + 1) & 0x3FFFF;  // 18-bit
         }
 
-        case 0: {
-            valid_pipe[1] = false;
-            is_special_case_pipe[1] = false;
-            break;
-        }
-
-        default:
-            break;
+        valid_pipe[1] = true;
+    } else {
+        valid_pipe[1] = false;
+        is_special_case_pipe[1] = false;
     }
 }
 
 void Exp::stage2_Y_calculation()
 {
-    int is_valid_pipe_1 = valid_pipe[1] ? 1 : 0;
+    if (valid_pipe[1]) {
+        // Propagate special case flag
+        is_special_case_pipe[2] = is_special_case_pipe[1];
+        special_result_pipe[2] = special_result_pipe[1];
 
-    switch (is_valid_pipe_1) {
-        case 1: {
-            // Propagate special case flag
-            is_special_case_pipe[2] = is_special_case_pipe[1];
-            special_result_pipe[2] = special_result_pipe[1];
+        // Pipeline K_value (pipeline stage 0 → 1)
+        K_value_pipe[1] = K_value_pipe[0];
 
-            // Pipeline K_value (pipeline stage 0 → 1)
-            K_value_pipe[1] = K_value_pipe[0];
-
-            // Special handling: if Exp_Y = 0 (input very close to 0), mark as special case
-            // exp(0) = 1.0
-            if (Exp_Y == 0 && !is_special_case_pipe[1]) {
-                is_special_case_pipe[2] = true;
-                special_result_pipe[2] = 0x2000000;  // 1.0 in 1Q25
-            }
-
-            // Set tree_data[0] according to Exp_Y bits (18-bit, from bit 17 to bit 0)
-            for (int i = 0; i < EXP_Y_WIDTH; i++) {
-#pragma HLS PIPELINE II = 1
-                if ((Exp_Y >> i) & 1) {
-                    // Select corresponding exponent value based on bit index
-                    uint32_t exp_val = 0;
-                    switch (i) {
-                        case 17:
-                            exp_val = 0x4DA2CC;
-                            break;
-                        case 16:
-                            exp_val = 0xA45AF2;
-                            break;
-                        case 15:
-                            exp_val = 0x910B02;
-                            break;
-                        case 14:
-                            exp_val = 0x88415B;
-                            break;
-                        case 13:
-                            exp_val = 0x84102B;
-                            break;
-                        case 12:
-                            exp_val = 0x820405;
-                            break;
-                        case 11:
-                            exp_val = 0x810101;
-                            break;
-                        case 10:
-                            exp_val = 0x808040;
-                            break;
-                        case 9:
-                            exp_val = 0x804010;
-                            break;
-                        case 8:
-                            exp_val = 0x802004;
-                            break;
-                        case 7:
-                            exp_val = 0x801001;
-                            break;
-                        case 6:
-                            exp_val = 0x800800;
-                            break;
-                        case 5:
-                            exp_val = 0x800400;
-                            break;
-                        case 4:
-                            exp_val = 0x800200;
-                            break;
-                        case 3:
-                            exp_val = 0x800100;
-                            break;
-                        case 2:
-                            exp_val = 0x800080;
-                            break;
-                        case 1:
-                            exp_val = 0x800040;
-                            break;
-                        case 0:
-                            exp_val = 0x800020;
-                            break;
-                        default:
-                            exp_val = 0;
-                            break;
-                    }
-                    tree_data[0][i] = (exp_val << Guard_Bits) & 0x3FFFFFF;
-                    tree_valid[0][i] = true;
-                } else {
-                    tree_data[0][i] = 0;
-                    tree_valid[0][i] = false;
-                }
-            }
-            valid_pipe[2] = true;
-            break;
+        // Special handling: if Exp_Y = 0 (input very close to 0), mark as special case
+        // exp(0) = 1.0
+        if (Exp_Y == 0 && !is_special_case_pipe[1]) {
+            is_special_case_pipe[2] = true;
+            special_result_pipe[2] = 0x2000000;  // 1.0 in 1Q25
         }
 
-        case 0: {
-            for (int i = 0; i < MAX_NODES; i++) {
-#pragma HLS PIPELINE II = 1
+        // Set tree_data[0] according to Exp_Y bits (18-bit, from bit 17 to bit 0)
+        for (int i = 0; i < EXP_Y_WIDTH; i++) {
+            if ((Exp_Y >> i) & 1) {
+                // Select corresponding exponent value based on bit index
+                uint32_t exp_val = 0;
+                switch (i) {
+                    case 17:
+                        exp_val = 0x4DA2CC;
+                        break;
+                    case 16:
+                        exp_val = 0xA45AF2;
+                        break;
+                    case 15:
+                        exp_val = 0x910B02;
+                        break;
+                    case 14:
+                        exp_val = 0x88415B;
+                        break;
+                    case 13:
+                        exp_val = 0x84102B;
+                        break;
+                    case 12:
+                        exp_val = 0x820405;
+                        break;
+                    case 11:
+                        exp_val = 0x810101;
+                        break;
+                    case 10:
+                        exp_val = 0x808040;
+                        break;
+                    case 9:
+                        exp_val = 0x804010;
+                        break;
+                    case 8:
+                        exp_val = 0x802004;
+                        break;
+                    case 7:
+                        exp_val = 0x801001;
+                        break;
+                    case 6:
+                        exp_val = 0x800800;
+                        break;
+                    case 5:
+                        exp_val = 0x800400;
+                        break;
+                    case 4:
+                        exp_val = 0x800200;
+                        break;
+                    case 3:
+                        exp_val = 0x800100;
+                        break;
+                    case 2:
+                        exp_val = 0x800080;
+                        break;
+                    case 1:
+                        exp_val = 0x800040;
+                        break;
+                    case 0:
+                        exp_val = 0x800020;
+                        break;
+                    default:
+                        exp_val = 0;
+                        break;
+                }
+                tree_data[0][i] = (exp_val << Guard_Bits) & 0x3FFFFFF;
+                tree_valid[0][i] = true;
+            } else {
+                tree_data[0][i] = 0;
                 tree_valid[0][i] = false;
             }
-            valid_pipe[2] = false;
-            is_special_case_pipe[2] = false;
-            break;
         }
-
-        default:
-            break;
+        valid_pipe[2] = true;
+    } else {
+        for (int i = 0; i < MAX_NODES; i++) {
+            tree_valid[0][i] = false;
+        }
+        valid_pipe[2] = false;
+        is_special_case_pipe[2] = false;
     }
 }
 
@@ -452,7 +431,6 @@ void Exp::stage4_7_tree_multiply()
             valid_pipe[2 + level + 1] = true;
         } else {
             for (int i = 0; i < MAX_NODES; i++) {
-#pragma HLS PIPELINE II = 1
                 tree_valid[level + 1][i] = false;
             }
             valid_pipe[2 + level + 1] = false;
@@ -513,35 +491,28 @@ uint32_t Exp::get_Exp_Ans_extended() const
 
     // Special case handling (matching hardware fast path)
     // Check for special values set by stage0_input
-    switch (fixed_result) {
-        case 0x0:
-            // Zero: exn=00, sign=0, exp=0, mantissa=0
-            return 0x0;
+    if (fixed_result == 0x0) {
+        // Zero: exn=00, sign=0, exp=0, mantissa=0
+        return 0x0;
+    } else if (fixed_result == 0x3FFFFFF) {
+        // Positive infinity: exn=10, sign=0, exp=11111111, mantissa=all 0
+        return (0x02 << 23) | (0xFF << 14) | 0x0000;
+    } else if (fixed_result == 0x2000000) {
+        // exp(Y) = 1.0, but need to apply K_final: exp(X) = 2^K * 1.0 = 2^K
+        // Extract K_final from pipeline
+        int16_t K_final = K_value_pipe[TREE_DEPTH + 1];
+        int exponent_raw = 127 + K_final;
 
-        case 0x3FFFFFF:
-            // Positive infinity: exn=10, sign=0, exp=11111111, mantissa=all 0
-            return (0x02 << 23) | (0xFF << 14) | 0x0000;
-
-        case 0x2000000: {
-            // exp(Y) = 1.0, but need to apply K_final: exp(X) = 2^K * 1.0 = 2^K
-            // Extract K_final from pipeline
-            int16_t K_final = K_value_pipe[TREE_DEPTH + 1];
-            int exponent_raw = 127 + K_final;
-
-            // Clamp exponent to valid range
-            if (exponent_raw <= 0) {
-                return 0x0;  // Underflow to zero
-            } else if (exponent_raw >= 255) {
-                return (0x02 << 23) | (0xFF << 14) | 0x0000;  // Overflow to infinity
-            }
-
-            uint8_t exponent = (uint8_t) exponent_raw;
-            // 2^K with mantissa = 0: exn=01, sign=0, exp=127+K, mantissa=0
-            return (0x01 << 23) | (exponent << 14) | 0x0000;
+        // Clamp exponent to valid range
+        if (exponent_raw <= 0) {
+            return 0x0;  // Underflow to zero
+        } else if (exponent_raw >= 255) {
+            return (0x02 << 23) | (0xFF << 14) | 0x0000;  // Overflow to infinity
         }
 
-        default:
-            break;
+        uint8_t exponent = (uint8_t) exponent_raw;
+        // 2^K with mantissa = 0: exn=01, sign=0, exp=127+K, mantissa=0
+        return (0x01 << 23) | (exponent << 14) | 0x0000;
     }
 
     // Extract K_final from pipeline (synchronized with Exp_Ans)

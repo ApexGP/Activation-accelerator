@@ -10,7 +10,7 @@ uint32_t ConstDiv::get_inv_k_25bit(int k)
     if (k < 1 || k > MAX_DIM) {
         return 0;  // Invalid index
     }
-
+    
     // Add exn=01 (normal number) to convert 23-bit to 25-bit
     return (1U << 23) | Inv_k_LUT_23BIT[k];
 }

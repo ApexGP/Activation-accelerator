@@ -35,38 +35,32 @@ public:
     // Output getters
     bool get_valid_out() const
     {
-#pragma HLS INLINE
         return valid_out;
     }
 
     // Output: 25-bit format (exn(2) + sign(1) + exp(8) + mantissa(14))
     uint32_t get_result_extended() const
     {
-#pragma HLS INLINE
         return result;
     }
 
     // Debug/testing getters for intermediate results
     uint32_t get_ln_X1() const
     {
-#pragma HLS INLINE
         return ln_X1;
     }
     uint32_t get_ln_X2() const
     {
-#pragma HLS INLINE
         return ln_X2;
     }
     uint32_t get_ln_diff() const
     {
-#pragma HLS INLINE
         return ln_diff;
     }
 
     enum State { IDLE, ANALYSIS, FPSUB_COMPUTE, EXP_COMPUTE, DONE };
     State get_state() const
     {
-#pragma HLS INLINE
         return state;
     }
 

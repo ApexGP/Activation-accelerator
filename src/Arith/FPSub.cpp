@@ -225,24 +225,18 @@ void FPSub::stage_close_far_path()
     bool fracResultRoundBit = false;
     bool fracResultStickyBit = false;
 
-    switch (fracLeadingBits) {
-        case 0:
-            fracResultFar1 = (fracResultfar0_reg >> 1) & 0x3FFF;
-            fracResultRoundBit = fracResultfar0_reg & 1;
-            fracResultStickyBit = sticky_reg;
-            break;
-
-        case 1:
-            fracResultFar1 = (fracResultfar0_reg >> 2) & 0x3FFF;
-            fracResultRoundBit = (fracResultfar0_reg >> 1) & 1;
-            fracResultStickyBit = (fracResultfar0_reg & 1) || sticky_reg;
-            break;
-
-        default:
-            fracResultFar1 = (fracResultfar0_reg >> 3) & 0x3FFF;
-            fracResultRoundBit = (fracResultfar0_reg >> 2) & 1;
-            fracResultStickyBit = ((fracResultfar0_reg & 0x3) != 0) || sticky_reg;
-            break;
+    if (fracLeadingBits == 0) {
+        fracResultFar1 = (fracResultfar0_reg >> 1) & 0x3FFF;
+        fracResultRoundBit = fracResultfar0_reg & 1;
+        fracResultStickyBit = sticky_reg;
+    } else if (fracLeadingBits == 1) {
+        fracResultFar1 = (fracResultfar0_reg >> 2) & 0x3FFF;
+        fracResultRoundBit = (fracResultfar0_reg >> 1) & 1;
+        fracResultStickyBit = (fracResultfar0_reg & 1) || sticky_reg;
+    } else {
+        fracResultFar1 = (fracResultfar0_reg >> 3) & 0x3FFF;
+        fracResultRoundBit = (fracResultfar0_reg >> 2) & 1;
+        fracResultStickyBit = ((fracResultfar0_reg & 0x3) != 0) || sticky_reg;
     }
 
     bool roundFar1 = fracResultRoundBit && (fracResultStickyBit || (fracResultFar1 & 1));
@@ -278,48 +272,34 @@ void FPSub::stage_final_round()
     uint8_t UnderflowOverflow = (resultRounded_reg >> 22) & 0x3;
 
     uint8_t exnR = 0;
-    switch (syncExnXY_d1) {
-        case 0x5:
-            if (UnderflowOverflow == 1) {
-                exnR = 2;  // overflow
-            } else if (UnderflowOverflow >= 2) {
-                exnR = 0;  // underflow
-            } else {
-                exnR = 1;  // normal
-            }
-            break;
-
-        case 0xA:
-            exnR = 2 | (syncEffSub_d1 ? 1 : 0);
-            break;
-
-        case 0xE:
-            exnR = 3;
-            break;
-
-        default:
-            exnR = (syncExnXY_d1 >> 2) & 0x3;
-            break;
+    if (syncExnXY_d1 == 0x5) {
+        if (UnderflowOverflow == 1) {
+            exnR = 2;  // overflow
+        } else if (UnderflowOverflow >= 2) {
+            exnR = 0;  // underflow
+        } else {
+            exnR = 1;  // normal
+        }
+    } else if (syncExnXY_d1 == 0xA) {
+        exnR = 2 | (syncEffSub_d1 ? 1 : 0);
+    } else if (syncExnXY_d1 == 0xE) {
+        exnR = 3;
+    } else {
+        exnR = (syncExnXY_d1 >> 2) & 0x3;
     }
 
     bool sgnR = false;
     uint32_t expsigR = 0;
 
-    switch (syncExnXY_d1) {
-        case 0x5:
-            sgnR = syncResSign_d1;
-            expsigR = resultRounded_reg & 0x3FFFFF;  // 22-bit
-            break;
-
-        case 0x0:
-            sgnR = ((syncX_d1 >> 22) & 1) && syncSignY_d1;
-            expsigR = syncX_d1 & 0x3FFFFF;
-            break;
-
-        default:
-            sgnR = (syncX_d1 >> 22) & 1;
-            expsigR = syncX_d1 & 0x3FFFFF;
-            break;
+    if (syncExnXY_d1 == 0x5) {
+        sgnR = syncResSign_d1;
+        expsigR = resultRounded_reg & 0x3FFFFF;  // 22-bit
+    } else if (syncExnXY_d1 == 0x0) {
+        sgnR = ((syncX_d1 >> 22) & 1) && syncSignY_d1;
+        expsigR = syncX_d1 & 0x3FFFFF;
+    } else {
+        sgnR = (syncX_d1 >> 22) & 1;
+        expsigR = syncX_d1 & 0x3FFFFF;
     }
 
     R = ((exnR << 23) | (sgnR ? (1 << 22) : 0) | expsigR) & 0x1FFFFFF;  // 25-bit

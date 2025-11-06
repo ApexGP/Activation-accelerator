@@ -52,13 +52,11 @@ Analysis::~Analysis()
 
 void Analysis::reset()
 {
-    // Manual reset of all pipeline stages
+    // Reset all pipeline stages
     for (int i = 0; i < PIPELINE_DEPTH + 1; i++) {
-#pragma HLS PIPELINE II = 1
         pipeline_valid[i] = false;
     }
     for (int i = 0; i < PIPELINE_DEPTH; i++) {
-#pragma HLS PIPELINE II = 1
         pipeline_mult_result[i] = 0x0800000;  // 1.0 in 2u23
         pipeline_select_power[i] = 0;
         pipeline_ufixX[i] = 0;
@@ -95,7 +93,6 @@ uint32_t Analysis::fixed_mult_2q23(uint32_t a, uint32_t b)
 uint8_t Analysis::find_start_index(uint32_t target_value)
 {
     for (uint8_t i = 0; i < LUT_SIZE; i++) {
-#pragma HLS PIPELINE II = 1
         if (target_value >= Exp_Power_Space_LUT[i]) {
             return i;
         }
@@ -211,7 +208,6 @@ void Analysis::clock_step()
 
     // Pipeline shift (backward iteration to avoid overwriting)
     for (int j = PIPELINE_DEPTH - 1; j > 0; j--) {
-#pragma HLS PIPELINE II = 1
         pipeline_valid[j] = pipeline_valid[j - 1];
         pipeline_ufixX[j] = pipeline_ufixX[j - 1];
         pipeline_start_index[j] = pipeline_start_index[j - 1];
@@ -240,7 +236,6 @@ void Analysis::clock_step()
 
     // Stage 1-15: Greedy algorithm iterations
     for (int j = 1; j <= DATA_WF + 1; j++) {
-#pragma HLS PIPELINE II = 1
         if (pipeline_valid[j - 1]) {
             uint8_t current_index = pipeline_start_index[j - 1] + (j - 1);
 
@@ -268,8 +263,8 @@ void Analysis::clock_step()
     }
 
     // ========== Combinational Logic: Float Conversion (based on Stage OUTPUT_WF+1) ==========
-    // Hardware: Combinational logic computes immediately when Stage 15 completes
-    // These signals connect to FPAdd module input ports
+    // Hardware: 组合逻辑在 Stage 15 完成时立即计算
+    // 这些信号连接到 FPAdd 模块的输入端口
     uint32_t greedy_float_wire = 0;
     uint32_t bias_float_wire = 0;
 
@@ -278,12 +273,12 @@ void Analysis::clock_step()
             greedy_to_float(pipeline_select_power[DATA_WF + 1], pipeline_start_index[DATA_WF + 1]);
         bias_float_wire = fixed_to_float_q7_16(pipeline_bias_kcm[DATA_WF + 1]);
 
-        // Set FPAdd inputs (simulating hardware port connections)
+        // 设置 FPAdd 输入（模拟硬件端口连接）
         fadd_module->set_input(greedy_float_wire, bias_float_wire);
     }
 
-    // ========== FPAdd Module: Continuously Running (simulating hardware module) ==========
-    // In hardware, FPAdd is an independent module that runs every cycle
+    // ========== FPAdd Module: 持续运行（模拟硬件模块） ==========
+    // 硬件中 FPAdd 是独立模块，每个周期都在运行
     fadd_module->clock_step();
 
     // ========== Stage OUTPUT_WF+2 and OUTPUT_WF+3: Valid Signal Propagation ==========
@@ -294,13 +289,12 @@ void Analysis::clock_step()
 
     // ========== Output: Read FPAdd Result ==========
     // Hardware: assign Ln_Ans = fadd_R[OUTPUT_WE + OUTPUT_WF : 0]
-    // FPAdd output directly connects to module output
+    // FPAdd 输出直接连接到模块输出
     Ln_Ans_reg = fadd_module->get_result_extended();
 }
 
 bool Analysis::get_valid_out() const
 {
-#pragma HLS INLINE
     return pipeline_valid[PIPELINE_DEPTH];
 }
 
@@ -308,6 +302,5 @@ uint32_t Analysis::get_Ln_Ans_extended() const
 {
     // Output is already in 25-bit format: exn(2) + sign(1) + exp(8) + mantissa(14)
     // This is the complete ln(X) value computed by hardware
-#pragma HLS INLINE
     return Ln_Ans_reg;
 }

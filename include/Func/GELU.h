@@ -2,6 +2,7 @@
 #define GELU_H
 
 #include <cstdint>
+#include <vector>
 
 /**
  * @brief GELU Activation Function (Approximation)
@@ -12,13 +13,13 @@
  * This approximation is faster and more hardware-friendly than the
  * exact GELU formula involving error function (erf).
  *
- * Input/Output: bf16 (16-bit Brain Floating Point)
+ * Input/Output: BF16 (16-bit Brain Floating Point)
  * Internal Precision: 25-bit extended format
  *
- * @param x_bf16 Input vector in bf16 format
- * @param y_bf16 Output vector in bf16 format
+ * @param x_bf16 Input vector in BF16 format
+ * @param y Output vector in BF16 format (resized automatically)
  * @param len Length of input vector
  */
-void gelu(uint16_t *x_bf16, uint16_t *y_bf16, const int len);
+void gelu_activation(const std::vector<uint16_t> &x_bf16, std::vector<uint16_t> &y, int len);
 
 #endif  // GELU_H

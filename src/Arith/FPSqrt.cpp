@@ -61,54 +61,42 @@ void FPSqrt::set_input(uint32_t X)
     // - 1/sqrt(+0) = +inf
     // - 1/sqrt(-0) = -inf
 
-    switch (exn) {
-        case 3:
-            // NaN
-            result = X_reg;  // Propagate NaN
-            valid_out = true;
-            state = DONE;
-            return;
-
-        case 2:
-            // Infinity
-            if (sign) {
-                // 1/sqrt(-inf) = NaN
-                result = (3U << 23) | (0xFF << 14) | 0x1;  // NaN
-            } else {
-                // 1/sqrt(+inf) = +0
-                result = (0U << 23) | (0U << 22);  // +0
-            }
-            valid_out = true;
-            state = DONE;
-            return;
-
-        case 0:
-            // Zero: 1/sqrt(±0) = ±inf (preserve sign)
-            if (sign) {
-                // 1/sqrt(-0) = -inf
-                result = (2U << 23) | (1U << 22) | (0xFF << 14);  // -inf
-            } else {
-                // 1/sqrt(+0) = +inf
-                result = (2U << 23) | (0U << 22) | (0xFF << 14);  // +inf
-            }
-            valid_out = true;
-            state = DONE;
-            return;
-
-        case 1:
-            // Normal
-            if (sign) {
-                // Normal negative number: 1/sqrt(-x) = NaN
-                result = (3U << 23) | (0xFF << 14) | 0x1;  // NaN
-                valid_out = true;
-                state = DONE;
-                return;
-            }
-
-            break;
-
-        default:
-            break;
+    if (exn == 3) {
+        // NaN
+        result = X_reg;  // Propagate NaN
+        valid_out = true;
+        state = DONE;
+        return;
+    } else if (exn == 2) {
+        // Infinity
+        if (sign) {
+            // 1/sqrt(-inf) = NaN
+            result = (3U << 23) | (0xFF << 14) | 0x1;  // NaN
+        } else {
+            // 1/sqrt(+inf) = +0
+            result = (0U << 23) | (0U << 22);  // +0
+        }
+        valid_out = true;
+        state = DONE;
+        return;
+    } else if (exn == 0) {
+        // Zero: 1/sqrt(±0) = ±inf (preserve sign)
+        if (sign) {
+            // 1/sqrt(-0) = -inf
+            result = (2U << 23) | (1U << 22) | (0xFF << 14);  // -inf
+        } else {
+            // 1/sqrt(+0) = +inf
+            result = (2U << 23) | (0U << 22) | (0xFF << 14);  // +inf
+        }
+        valid_out = true;
+        state = DONE;
+        return;
+    } else if (sign) {
+        // Normal negative number: 1/sqrt(-x) = NaN
+        result = (3U << 23) | (0xFF << 14) | 0x1;  // NaN
+        valid_out = true;
+        state = DONE;
+        return;
     }
 
     // Normal positive number: proceed with computation
@@ -128,7 +116,7 @@ void FPSqrt::stage_analysis()
     // Extract 23-bit input (remove exn bits) for Analysis module
     uint32_t X_23bit = X_reg & 0x7FFFFF;  // Remove exn bits, keep sign + exp + mantissa
 
-    // Call set_input only in the first cycle, then only call clock_step
+    // 学习 Softmax 的模式：只在第一个周期调用 set_input，后续只调用 clock_step
     if (cycle_count == 0) {
         // Set input for Analysis module
         analysis.set_input(X_23bit, true);
@@ -175,6 +163,7 @@ void FPSqrt::stage_mult()
 void FPSqrt::stage_exp()
 {
     // Compute exp(-0.5 * ln(X)) = exp(ln(X^(-0.5))) = X^(-0.5) = 1/sqrt(X)
+    // 学习 Softmax 的模式：只在第一个周期调用 set_input，后续只调用 clock_step
     if (cycle_count == 0) {
         // Set input for Exp module (25-bit)
         exp_module.set_input(half_ln_X, true);

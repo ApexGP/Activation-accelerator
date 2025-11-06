@@ -54,34 +54,46 @@ void FPDiv::set_input(uint32_t X1, uint32_t X2)
     bool sign2 = (X2_reg >> 22) & 0x1;
     result_sign = sign1 ^ sign2;  // Division sign: XOR (saved as member variable)
 
-    // All conditions that result in NaN
-    bool is_NaN = (exn1 == 3 || exn2 == 3) ||  // NaN / anything or anything / NaN
-                  (exn1 == 2 && exn2 == 2) ||  // Inf / Inf
-                  (exn1 == 0 && exn2 == 0);    // 0 / 0
-
-    // All conditions that result in Inf (that are not already NaN)
-    bool is_Inf = (exn1 == 2) ||  // Inf / normal or Inf / 0
-                  (exn2 == 0);    // normal / 0
-
-    // All conditions that result in Zero (that are not already NaN or Inf)
-    bool is_Zero = (exn2 == 2) ||  // normal / Inf or 0 / Inf
-                   (exn1 == 0);    // 0 / normal
-
     // Handle special cases
-    if (is_NaN) {
+    if (exn1 == 3 || exn2 == 3) {
+        // NaN / anything or anything / NaN = NaN
         result = (0x03 << 23) | (0xFF << 14) | 0x1;  // NaN
         valid_out = true;
         state = DONE;
         return;
-
-    } else if (is_Inf) {
+    } else if (exn1 == 2 && exn2 == 2) {
+        // Inf / Inf = NaN
+        result = (0x03 << 23) | (0xFF << 14) | 0x1;  // NaN
+        valid_out = true;
+        state = DONE;
+        return;
+    } else if (exn1 == 2) {
+        // Inf / normal or Inf / 0 = Inf (with result sign)
         result = (0x02 << 23) | (result_sign << 22) | (0xFF << 14) | 0x0;  // Inf
         valid_out = true;
         state = DONE;
         return;
-
-    } else if (is_Zero) {
+    } else if (exn2 == 2) {
+        // normal / Inf or 0 / Inf = 0 (with result sign)
         result = (0x00 << 23) | (result_sign << 22);  // Zero
+        valid_out = true;
+        state = DONE;
+        return;
+    } else if (exn1 == 0 && exn2 == 0) {
+        // 0 / 0 = NaN
+        result = (0x03 << 23) | (0xFF << 14) | 0x1;  // NaN
+        valid_out = true;
+        state = DONE;
+        return;
+    } else if (exn1 == 0) {
+        // 0 / normal = 0 (with result sign)
+        result = (0x00 << 23) | (result_sign << 22);  // Zero
+        valid_out = true;
+        state = DONE;
+        return;
+    } else if (exn2 == 0) {
+        // normal / 0 = Inf (with result sign)
+        result = (0x02 << 23) | (result_sign << 22) | (0xFF << 14) | 0x0;  // Inf
         valid_out = true;
         state = DONE;
         return;
@@ -122,7 +134,7 @@ void FPDiv::stage_analysis()
     uint32_t X1_23bit = X1_reg & 0x3FFFFF;  // Clear sign bit, keep exp(8) + mantissa(14)
     uint32_t X2_23bit = X2_reg & 0x3FFFFF;  // Clear sign bit
 
-    // Call set_input only in the first cycle, then only call clock_step
+    // 学习 Softmax 的模式：只在第一个周期调用 set_input，后续只调用 clock_step
     if (cycle_count == 0) {
         // Set inputs for Analysis modules
         analysis1.set_input(X1_23bit, true);
@@ -174,6 +186,7 @@ void FPDiv::stage_fpsub()
 void FPDiv::stage_exp()
 {
     // Compute exp(ln(X1) - ln(X2))
+    // 学习 Softmax 的模式：只在第一个周期调用 set_input，后续只调用 clock_step
     if (cycle_count == 0) {
         // Set input for Exp module (25-bit)
         exp_module.set_input(ln_diff, true);

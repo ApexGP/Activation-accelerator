@@ -1,6 +1,9 @@
 build/
 .cache/
-data/
 ref/
-TODO.md
-*GUIDE.md
+*.md
+/lib
+/bin
+*.bin
+*.npy
+*.pt

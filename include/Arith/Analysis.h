@@ -2,8 +2,7 @@
 #define ANALYSIS_H
 
 #include <cstdint>
-
-#include "Utils/HlsVector.h"
+#include <vector>
 
 class FPAdd;  // Forward declaration
 
@@ -37,12 +36,12 @@ private:
     uint32_t Exp_Power_Space_LUT[LUT_SIZE];
 
     // Pipeline registers
-    HlsVector<bool, PIPELINE_DEPTH + 1> pipeline_valid;
-    HlsVector<uint32_t, PIPELINE_DEPTH> pipeline_mult_result;   // 25-bit 2u23
-    HlsVector<uint32_t, PIPELINE_DEPTH> pipeline_select_power;  // 23-bit
-    HlsVector<uint32_t, PIPELINE_DEPTH> pipeline_ufixX;         // 25-bit
-    HlsVector<uint8_t, PIPELINE_DEPTH> pipeline_start_index;    // 5-bit
-    HlsVector<uint32_t, PIPELINE_DEPTH> pipeline_bias_kcm;      // 24-bit Q7.16
+    std::vector<bool> pipeline_valid;
+    std::vector<uint32_t> pipeline_mult_result;   // 25-bit 2u23
+    std::vector<uint32_t> pipeline_select_power;  // 23-bit
+    std::vector<uint32_t> pipeline_ufixX;         // 25-bit
+    std::vector<uint8_t> pipeline_start_index;    // 5-bit
+    std::vector<uint32_t> pipeline_bias_kcm;      // 24-bit Q7.16
 
     // Input registers
     uint32_t X_reg;  // 23-bit
@@ -57,7 +56,7 @@ private:
     // Final output (from FPAdd)
     uint32_t Ln_Ans_reg;  // 25-bit
 
-    // FPAdd module instance (continuously running, simulating hardware module)
+    // FPAdd module instance (持续运行，模拟硬件模块)
     FPAdd *fadd_module;
 
     // Helper functions

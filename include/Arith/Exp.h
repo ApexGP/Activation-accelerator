@@ -15,12 +15,10 @@ public:
 
     bool get_valid_out() const
     {
-#pragma HLS INLINE
         return valid_out;
     }
     uint32_t get_Exp_Ans() const
     {
-#pragma HLS INLINE
         return Exp_Ans;
     }  // 26-bit (1Q25 format)
 
@@ -30,12 +28,10 @@ public:
 
     uint8_t get_absInt_K() const
     {
-#pragma HLS INLINE
         return absInt_K;
     }
     uint32_t get_Exp_Y() const
     {
-#pragma HLS INLINE
         return Exp_Y;  // 18-bit value for wF=14
     }
 
