@@ -1,4 +1,6 @@
 build/
 .cache/
+data/
 ref/
-*.md
+TODO.md
+*GUIDE.md
